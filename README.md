@@ -134,6 +134,31 @@ Server health + extension connection status.
 
 ---
 
+## Adding Model UUIDs
+
+Model UUIDs map arena.ai's internal model IDs to human-readable names. `grok-4.5` is pre-configured as a test model:
+
+| Name | UUID |
+|------|------|
+| `grok-4.5` | `019f42aa-9c3b-76d1-8bdf-2e883b1ca227` |
+
+### Find UUIDs (Bookmarklet)
+
+1. Drag `scripts/uuid-finder.js` into your browser bookmarks bar.
+2. Open `arena.ai/text/direct` and send a message to any model.
+3. Click the bookmarklet, then open DevTools console (F12).
+4. Watch for `MODEL UUID:` lines as you send messages — copy the UUID and model name.
+
+### Add via Extension Popup
+
+1. Click the extension icon → **Models** section.
+2. Enter the model name (e.g. `gpt-4o`) and the UUID.
+3. Click **+** to add. Custom models appear in `GET /v1/models` immediately.
+
+> **Video tutorial:** *[link TBD — recording in progress]*
+
+---
+
 ## Project Structure
 
 ```
