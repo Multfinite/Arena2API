@@ -26,7 +26,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse, JSONResponse
+from starlette.responses import StreamingResponse, JSONResponse, HTMLResponse
 
 # ============================================================
 # 日志
@@ -36,6 +36,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("arena2api")
+
+from help_page import help_payload, render_html
 
 # ============================================================
 # 配置
@@ -332,6 +334,36 @@ async def list_models(request: Request):
             "owned_by": "arena.ai",
         })
     return {"object": "list", "data": data}
+
+
+@app.get("/v1/arena/models")
+async def arena_models(request: Request):
+    """Подробный список для внешних установщиков (Copilot BYOK и т.п.).
+
+    /v1/models смешивает текстовые и картиночные модели, а для чата это
+    критично: chat_completions ставит modality='image' для любого имени из
+    image_models. Здесь разделение явное, поэтому установщик может безопасно
+    пробросить "все модели" и не сломать чат.
+    """
+    verify_api_key(request)
+    vision = set(store.vision_models)
+    text = [
+        {"id": name, "uuid": mid, "vision": name in vision}
+        for name, mid in sorted(store.text_models.items())
+    ]
+    image = [
+        {"id": name, "uuid": mid}
+        for name, mid in sorted(store.image_models.items())
+    ]
+    return {
+        "text": text,
+        "image": image,
+        "counts": {
+            "text": len(text),
+            "image": len(image),
+            "vision": len([m for m in text if m["vision"]]),
+        },
+    }
 
 
 def detect_client(request: Request) -> str:
@@ -866,6 +898,19 @@ async def non_stream_response(url, payload, headers, model_name, eval_id, client
         response["content"] = [{"type": "text", "text": full_content}]
 
     return response
+
+
+@app.get("/help")
+async def help_endpoint(request: Request):
+    """Справка по всему API и по функции проброса моделей в Copilot.
+
+    HTML по умолчанию; JSON при ?format=json или Accept: application/json.
+    """
+    data = help_payload(store, bool(API_KEY))
+    if (request.query_params.get("format") == "json"
+            or "application/json" in request.headers.get("accept", "")):
+        return JSONResponse(data)
+    return HTMLResponse(render_html(data))
 
 
 # ============================================================

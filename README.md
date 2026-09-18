@@ -1,190 +1,96 @@
-# Arena2API-Fixed
+# Arena2API — сборка
 
-**arena.ai → OpenAI-compatible API.** Use 300+ arena.ai models (Grok, GPT, Claude, Gemini, Llama) through any OpenAI-compatible client at `localhost:9090`.
+**Все правки сделаны при помощи Agent Mode в arena.ai**
 
-> **Fork of [flay-o/arena2api](https://github.com/flay-o/arena2api)** — original project by flay-o. This fork adds 429 fixes, on-demand reCAPTCHA, and stability improvements.
+arena.ai → OpenAI-совместимый API + проброс всех моделей в GitHub Copilot.
+Собрано из `kekurttel/Arena2api-fixed` с правками (список моделей берётся с живой
+страницы, добавлены `/v1/arena/models` и `/help`) и скриптами для Copilot.
 
----
+## Состав
 
-## Features
+```
+Arena2API/
+├── server.py              прокси FastAPI (+ /v1/arena/models, /help)
+├── help_page.py           данные и HTML для /help
+├── requirements.txt
+├── extension/             расширение Chrome (MV3) — модели с живой страницы
+├── extension-firefox/     то же для Firefox (MV2)
+├── scripts/uuid-finder.js букмарклет для поиска UUID моделей
+├── copilot/               ВСЁ, что касается VS Code Copilot — отдельная папка
+│   ├── install_copilot.py   проброс моделей по профилям
+│   ├── diagnose_copilot.py  почему модели не появились
+│   ├── test_agent_mode.py   e2e-тест агентного пути
+│   └── README.md
+├── tools/
+│   ├── parse_models.py    парсер страницы arena.ai → списки моделей
+│   └── models/            сгенерированные списки (csv/json/payload)
+├── tests/
+│   ├── test_injector.js   тест парсера моделей в расширении
+│   └── flight_sample.txt  фикстура (flight-данные страницы)
+└── patches/
+    └── arena2api-vs-upstream.patch   все правки одним диффом к upstream
+```
 
-- **OpenAI-compatible** — `POST /v1/chat/completions`, `GET /v1/models`, streaming SSE, tool calling. Works with any OpenAI SDK, OpenRouter, OpenWebUI, ChatBox, NextChat, curl.
-- **300+ models** — every model on arena.ai through one API.
-- **Streaming** — full SSE streaming with `stream: true`.
-- **Multi-turn** — pass message history for context-aware responses.
-- **Tool calling** — XML-based tool use injection, compatible with OpenAI tool format.
-- **Fuzzy model matching** — `grok`, `grok-4.5`, `arena-ai/grok-4.5` all resolve to the same model.
-- **On-demand reCAPTCHA** — tokens retrieved from the real browser only when needed (no background farming = higher scores).
-- **Firefox + Chrome** — extensions for both browsers.
+## Отличия от upstream
 
----
+Всё, чем эта сборка отличается от `kekurttel/Arena2api-fixed` (коммит `5feabda`),
+собрано в `patches/arena2api-vs-upstream.patch` — 18 файлов, разбор по файлам в
+`patches/README.md`. Патч наложен на свежий клон upstream и проверен: дерево после
+наложения идентично этому проекту.
 
-## Quick Start
-
-### 1. Install & Start Server
+## Запуск
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Linux/Mac
-# .venv\Scripts\activate    # Windows
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python server.py
+python server.py            # http://localhost:9090
 ```
 
-Server listens on `http://localhost:9090`.
+Переменные окружения: `PORT` (9090), `API_KEY` (если задан — нужен
+`Authorization: Bearer <ключ>`), `DEBUG=1`.
 
-### 2. Install Browser Extension
+Расширение: `chrome://extensions/` → «Режим разработчика» → «Загрузить распакованное»
+→ папка `extension/`. Firefox: `about:debugging` → «Загрузить временное дополнение» →
+`extension-firefox/manifest.json`. Затем открыть `https://arena.ai/text/direct`
+и залогиниться.
 
-**Chrome:** `chrome://extensions/` → Developer mode → Load unpacked → select `extension/`.
-
-**Firefox:** `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → select `extension-firefox/manifest.json`.
-
-### 3. Open arena.ai
-
-Click extension icon → **Open Arena.ai** (or manually open `https://arena.ai/text/direct`). Wait 3–5 seconds for the page to load.
-
-### 4. Verify
-
-Click extension icon. Expected: Server ✅ Connected, Arena Tab ✅ Active, Auth Cookie ✅ Yes, Models ✅ >0.
-
-### 5. Test with curl
+## Справка по API
 
 ```bash
-curl http://localhost:9090/v1/models
-
-curl http://localhost:9090/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "grok-4.5", "messages": [{"role": "user", "content": "Hello!"}]}'
-
-curl -sN http://localhost:9090/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "grok-4.5", "messages": [{"role": "user", "content": "Hello!"}], "stream": true}'
+curl http://localhost:9090/help                # HTML-страница
+curl http://localhost:9090/help?format=json    # то же в JSON
 ```
 
----
+`/help` описывает все эндпоинты, функцию проброса моделей в Copilot и известные
+грабли; статус (число моделей, связь с расширением) подставляется живой.
 
-## Architecture
+| Метод | Путь | Зачем |
+|---|---|---|
+| POST | `/v1/chat/completions` | чат в формате OpenAI (stream, tools) |
+| GET | `/v1/models` | список моделей (text+image вместе) |
+| GET | `/v1/arena/models` | текстовые отдельно от картиночных + uuid + vision |
+| GET | `/health` | состояние сервера и расширения |
+| POST | `/v1/extension/push` | сюда расширение шлёт куки, токены, модели |
+| GET | `/v1/extension/status` | состояние расширения |
+| GET | `/v1/extension/command` | long-poll команд (запрос токена) |
+| GET | `/help` | эта справка |
 
-```mermaid
-graph LR
-    Client["OpenAI Client<br/>(SDK / curl / OpenWebUI)"]
-    Server["Python Proxy<br/>localhost:9090"]
-    Extension["Browser Extension<br/>(arena.ai page)"]
-    Arena["arena.ai API"]
+## Модели в Copilot
 
-    Client -- "POST /v1/chat/completions" --> Server
-    Extension -- "cookies + models + reCAPTCHA tokens" --> Server
-    Server -- "re-authenticated request" --> Arena
-    Arena -- "SSE stream" --> Server
-    Server -- "OpenAI SSE format" --> Client
+```bash
+python3 copilot/install_copilot.py                            # все профили
+python3 copilot/install_copilot.py --user-profile "C#" "C++" "DELPHI 7"
 ```
 
-### On-Demand reCAPTCHA Flow
+Подробности — в `copilot/README.md`.
 
-```
-Client POST → server queues request → needs token
-  → extension long-poll → "get_token" command
-  → content.js routes to injector.js (MAIN world)
-  → grecaptcha.enterprise.execute() → token
-  → token flows back: injector → content → background → server
-  → server fulfills arena.ai request → returns OpenAI response
+## Проверки
+
+```bash
+node tests/test_injector.js              # 6 проверок парсера на фикстуре (738 моделей)
+python3 copilot/test_agent_mode.py       # 13 проверок агентного пути (tool_calls)
 ```
 
----
-
-## API Reference
-
-### `POST /v1/chat/completions`
-
-OpenAI-compatible. Accepts `model`, `messages`, `stream`, `tools`, `temperature`, `max_tokens`.
-
-**Model resolution:**
-| Input | Resolves to |
-|-------|-------------|
-| `grok-4.5` | grok-4.5 |
-| `grok` | grok-4.5 (first fuzzy match) |
-| `arena-ai/grok-4.5` | grok-4.5 (strips prefix) |
-
-### `GET /v1/models`
-
-Lists all available models in OpenAI format.
-
-### `GET /health`
-
-Server health + extension connection status.
-
----
-
-## Configuration
-
-| Env var | Default | Description |
-|---------|---------|-------------|
-| `PORT` | `9090` | Server port |
-| `API_KEY` | (none) | Require `Authorization: Bearer <API_KEY>` |
-| `DEBUG` | (none) | Enable debug logging |
-
----
-
-## Troubleshooting
-
-**429 Too Many Requests / "prompt failed"** — Reload extension (`chrome://extensions/` → refresh Arena2API), refresh arena.ai tab. Server auto-retries once with a fresh token.
-
-**503 Extension not connected** — Ensure arena.ai tab is open and extension is loaded. Click **Push** in the popup.
-
-**reCAPTCHA not available** — Open arena.ai in a real browser window (not headless). `injector.js` needs the page's `grecaptcha.enterprise` object.
-
-**Model not found** — `GET /v1/models` to list. Add custom models via popup UI's model management.
-
----
-
-## Adding Model UUIDs
-
-Model UUIDs map arena.ai's internal model IDs to human-readable names. `grok-4.5` is pre-configured as a test model:
-
-| Name | UUID |
-|------|------|
-| `grok-4.5` | `019f42aa-9c3b-76d1-8bdf-2e883b1ca227` |
-
-### Find UUIDs (Bookmarklet)
-
-1. Drag `scripts/uuid-finder.js` into your browser bookmarks bar.
-2. Open `arena.ai/text/direct` and send a message to any model.
-3. Click the bookmarklet, then open DevTools console (F12).
-4. Watch for `MODEL UUID:` lines as you send messages — copy the UUID and model name.
-
-### Add via Extension Popup
-
-1. Click the extension icon → **Models** section.
-2. Enter the model name (e.g. `gpt-4o`) and the UUID.
-3. Click **+** to add. Custom models appear in `GET /v1/models` immediately.
-
-> **Video tutorial:** *[link TBD — recording in progress]*
-
----
-
-## Project Structure
-
-```
-arena2api/
-├── server.py                 # FastAPI proxy (OpenAI → arena.ai)
-├── requirements.txt          # Python dependencies
-├── extension/                # Chrome extension (MV3)
-│   ├── manifest.json
-│   ├── background.js         # Service worker
-│   ├── content.js            # ISOLATED world bridge
-│   ├── injector.js           # MAIN world (grecaptcha, model extraction)
-│   ├── popup.html/js         # Extension popup UI
-├── extension-firefox/        # Firefox extension (MV2)
-└── scripts/
-    └── uuid-finder.js        # Bookmarklet for finding model UUIDs
-```
-
----
-
-## License
-
-MIT
-
-## Credits
-
-Original project by **[flay-o](https://github.com/flay-o/arena2api)** — this fork builds on that work with 429 fixes, on-demand reCAPTCHA, and stability improvements.
+Оба запускаются без аргументов и без внешних зависимостей: `test_injector.js` гоняет
+настоящий `extension/injector.js` в node против сохранённых flight-данных,
+`test_agent_mode.py` — настоящий `/v1/chat/completions` на заглушке потока arena.
